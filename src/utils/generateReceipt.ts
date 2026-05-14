@@ -1,5 +1,5 @@
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { Order, OrderStatus } from '../types';
 
 interface BusinessSettings {
@@ -101,7 +101,7 @@ export const generateReceiptPDF = (order: Order) => {
   doc.text(order.vehicle || 'N/A', pageWidth / 2 + 25, 65);
 
   // Items table
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: 82,
     margin: { left: 15, right: 15 },
     headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
@@ -114,10 +114,10 @@ export const generateReceiptPDF = (order: Order) => {
     footStyles: { fillColor: [243, 244, 246], textColor: [0, 0, 0], fontStyle: 'bold' },
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 5;
+  const finalY = (doc as any).lastAutoTable?.finalY ?? 120 + 5;
 
   // Payment breakdown
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: finalY,
     margin: { left: pageWidth / 2, right: 15, bottom: 20 },
     theme: 'plain',

@@ -37,6 +37,8 @@ export default function AssistantView() {
   const [refundAmount, setRefundAmount] = useState('');
   const [refundReason, setRefundReason] = useState('');
 
+  const [viewingCompletedOrder, setViewingCompletedOrder] = useState<Order | null>(null);
+
   // Edit order
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
 
@@ -517,6 +519,7 @@ export default function AssistantView() {
                     <td className="px-4 py-3 text-gray-700 max-w-[200px] truncate">{order.part_description}</td>
                     <td className="px-4 py-3 font-black text-green-700">R {(order.price ?? 0) + (order.delivery_fee ?? 0)}</td>
                     <td className="px-4 py-3 flex flex-wrap gap-3">
+                      <button type="button" onClick={() => setViewingCompletedOrder(order)} className="text-gray-800 text-xs font-bold uppercase hover:underline">View Details</button>
                       <button onClick={() => setRefundingOrder(order)} className="text-red-600 text-xs font-bold uppercase hover:underline">Issue Refund</button>
                       <button onClick={() => { generateReceiptPDF(order); const ts = { ...(order.message_timestamps ?? {}), RECEIPT_PDF: Date.now() }; updateOrderRecord(order.id, { message_timestamps: ts }, 'assistant').then(loadOrders); }} className="text-indigo-600 text-xs font-bold uppercase hover:underline">PDF Receipt</button>
                       <button onClick={() => {
@@ -581,6 +584,56 @@ export default function AssistantView() {
                 <button type="button" onClick={() => setRefundingOrder(null)} className="flex-1 bg-white border border-gray-300 font-bold py-3 rounded-xl uppercase text-sm text-gray-700">Cancel</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {viewingCompletedOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4 mb-6 border-b border-gray-100 pb-4">
+              <h3 className="text-lg font-black uppercase">Order details</h3>
+              <button
+                type="button"
+                onClick={() => setViewingCompletedOrder(null)}
+                className="text-gray-400 hover:text-gray-600 bg-gray-100 rounded-full p-2 shrink-0"
+                aria-label="Close"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex flex-col gap-3 text-sm">
+              <div><span className="font-bold text-gray-600">Reference:</span> {viewingCompletedOrder.ref || '—'}</div>
+              <div><span className="font-bold text-gray-600">Customer:</span> {viewingCompletedOrder.customer_name}</div>
+              <div><span className="font-bold text-gray-600">Phone:</span> {viewingCompletedOrder.phone || '—'}</div>
+              <div><span className="font-bold text-gray-600">Vehicle:</span> {viewingCompletedOrder.vehicle}</div>
+              <div><span className="font-bold text-gray-600">Part:</span> {viewingCompletedOrder.part_description}</div>
+              <div><span className="font-bold text-gray-600">Order type:</span> {viewingCompletedOrder.order_type || 'Collection'}</div>
+              <div><span className="font-bold text-gray-600">Status:</span> {viewingCompletedOrder.status}</div>
+              <div><span className="font-bold text-gray-600">Price:</span> R {(viewingCompletedOrder.price ?? 0).toFixed(2)}</div>
+              <div><span className="font-bold text-gray-600">Delivery fee:</span> R {(viewingCompletedOrder.delivery_fee ?? 0).toFixed(2)}</div>
+              <div><span className="font-bold text-gray-600">Total:</span> R {((viewingCompletedOrder.price ?? 0) + (viewingCompletedOrder.delivery_fee ?? 0)).toFixed(2)}</div>
+              <div><span className="font-bold text-gray-600">Deposit paid:</span> R {(viewingCompletedOrder.deposit_paid ?? 0).toFixed(2)}</div>
+              <div><span className="font-bold text-gray-600">Payment requirement:</span> {viewingCompletedOrder.payment_requirement || '—'}</div>
+              <div><span className="font-bold text-gray-600">Payment type:</span> {viewingCompletedOrder.payment_type || '—'}</div>
+              <div><span className="font-bold text-gray-600">Created:</span> {new Date(viewingCompletedOrder.created_at).toLocaleString()}</div>
+              <div><span className="font-bold text-gray-600">Last updated:</span> {viewingCompletedOrder.updated_at ? new Date(viewingCompletedOrder.updated_at).toLocaleString() : '—'}</div>
+            </div>
+            <div className="mt-8 pt-4 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  generateReceiptPDF(viewingCompletedOrder);
+                  const ts = { ...(viewingCompletedOrder.message_timestamps ?? {}), RECEIPT_PDF: Date.now() };
+                  void updateOrderRecord(viewingCompletedOrder.id, { message_timestamps: ts }, 'assistant').then(loadOrders);
+                }}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 rounded-xl uppercase text-sm"
+              >
+                Generate PDF Receipt
+              </button>
+            </div>
           </div>
         </div>
       )}
