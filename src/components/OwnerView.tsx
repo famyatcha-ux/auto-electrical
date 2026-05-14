@@ -70,6 +70,10 @@ export default function OwnerView() {
   const [refundAmount, setRefundAmount] = useState('');
   const [refundReason, setRefundReason] = useState('');
 
+  // Owner: capture final payment (ready for collection)
+  const [finalPayAmount, setFinalPayAmount] = useState('');
+  const [finalPayMethod, setFinalPayMethod] = useState('Cash');
+
   const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(null), 3000); };
 
   const loadOrders = async () => {
@@ -121,10 +125,14 @@ export default function OwnerView() {
     .filter(o => [OrderStatus.PRICED, OrderStatus.CONFIRMED, OrderStatus.WAITING_FOR_DEPOSIT, OrderStatus.WAITING_FOR_FULL_PAYMENT, OrderStatus.ORDERED, OrderStatus.READY_FOR_COLLECTION].includes(o.status))
     .reduce((a, o) => a + ((o.price ?? 0) + (o.delivery_fee ?? 0) - (o.deposit_paid ?? 0)), 0);
 
-  // Action counts — always unfiltered
+  // Workflow / action counts — always unfiltered (no date filter)
   const requestsCount = orders.filter(o => o.status === OrderStatus.REQUESTED).length;
-  const readyToOrderCount = orders.filter(o => o.status === OrderStatus.CONFIRMED).length;
+  const acceptedCount = orders.filter(o =>
+    [OrderStatus.PRICED, OrderStatus.CONFIRMED, OrderStatus.WAITING_FOR_DEPOSIT, OrderStatus.WAITING_FOR_FULL_PAYMENT].includes(o.status)
+  ).length;
+  const orderedCount = orders.filter(o => o.status === OrderStatus.ORDERED).length;
   const collectionCount = orders.filter(o => o.status === OrderStatus.READY_FOR_COLLECTION).length;
+  const completedCount = orders.filter(o => o.status === OrderStatus.COMPLETED).length;
 
   const matchesSearch = (o: Order) => {
     if (!searchQuery.trim()) return true;
@@ -149,13 +157,27 @@ export default function OwnerView() {
   });
 
   const selectedOrder = selectedOrderId ? orders.find(o => o.id === selectedOrderId) : null;
+  const ownerReadyCollectionTotal =
+    selectedOrder?.status === OrderStatus.READY_FOR_COLLECTION
+      ? (selectedOrder.price ?? 0) + (selectedOrder.delivery_fee ?? 0)
+      : 0;
+  const ownerReadyCollectionBalance =
+    selectedOrder?.status === OrderStatus.READY_FOR_COLLECTION
+      ? ownerReadyCollectionTotal - (selectedOrder.deposit_paid ?? 0)
+      : 0;
 
   useEffect(() => {
     if (selectedOrder) {
       setPriceInput(selectedOrder.price > 0 ? String(selectedOrder.price) : '');
       setDeliveryInput(selectedOrder.delivery_fee > 0 ? String(selectedOrder.delivery_fee) : '');
+      if (selectedOrder.status === OrderStatus.READY_FOR_COLLECTION) {
+        const total = (selectedOrder.price ?? 0) + (selectedOrder.delivery_fee ?? 0);
+        const bal = total - (selectedOrder.deposit_paid ?? 0);
+        setFinalPayAmount(bal > 0 ? String(bal) : '');
+        setFinalPayMethod('Cash');
+      }
     }
-  }, [selectedOrderId]);
+  }, [selectedOrderId, selectedOrder?.status, selectedOrder?.deposit_paid, selectedOrder?.price, selectedOrder?.delivery_fee]);
 
   const handleSetPrice = async (order: Order) => {
     const price = parseFloat(priceInput);
@@ -169,6 +191,20 @@ export default function OwnerView() {
   const handleStatusChange = async (order: Order, status: OrderStatus) => {
     await updateOrderRecord(order.id, { status }, 'owner');
     loadOrders();
+  };
+
+  const handleCaptureFinalPaymentOwner = async (order: Order) => {
+    const total = (order.price ?? 0) + (order.delivery_fee ?? 0);
+    const balance = total - (order.deposit_paid ?? 0);
+    const amt = parseFloat(finalPayAmount);
+    if (isNaN(amt) || amt <= 0) { alert('Enter a valid amount.'); return; }
+    if (amt > balance) { alert('Amount cannot exceed balance due.'); return; }
+    const newDeposit = (order.deposit_paid ?? 0) + amt;
+    const payload: Partial<Order> = { deposit_paid: newDeposit, payment_type: finalPayMethod };
+    if (newDeposit >= total) payload.status = OrderStatus.COMPLETED;
+    await updateOrderRecord(order.id, payload, 'owner');
+    loadOrders();
+    showToast(newDeposit >= total ? 'Order completed' : 'Payment recorded');
   };
 
   const handleRefundSubmit = async (e: React.FormEvent) => {
@@ -281,12 +317,12 @@ export default function OwnerView() {
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-6">
         <h3 className="text-sm font-black uppercase tracking-widest mb-6 flex items-center gap-2 text-slate-600">
           What Needs My Action
-          {(requestsCount > 0 || readyToOrderCount > 0 || collectionCount > 0) && <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />}
+          {(requestsCount > 0 || acceptedCount > 0 || collectionCount > 0) && <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />}
         </h3>
         <div className="flex flex-col lg:flex-row gap-6">
           {[
             { label: 'Requests waiting for price', count: requestsCount, filter: 'requests' as ViewFilter, color: 'blue' },
-            { label: 'Orders ready to order', count: readyToOrderCount, filter: 'accepted' as ViewFilter, color: 'purple' },
+            { label: 'Orders ready to order', count: acceptedCount, filter: 'accepted' as ViewFilter, color: 'purple' },
             { label: 'Ready for collection', count: collectionCount, filter: 'collection' as ViewFilter, color: 'green' },
           ].map(a => (
             <button key={a.label} onClick={() => { setCurrentScreen('list'); setViewFilter(a.filter); }} className={`border rounded-2xl text-left p-5 md:p-6 flex items-center justify-between flex-1 transition-all ${a.count > 0 ? `bg-${a.color}-50/50 border-${a.color}-500 border-l-[6px] border-l-${a.color}-600 shadow-md` : `bg-white border-slate-200 border-l-[6px] border-l-${a.color}-600 opacity-60`}`}>
@@ -301,15 +337,22 @@ export default function OwnerView() {
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
           {[
-            { f: 'requests', label: 'PRICE REQUESTS', color: 'bg-blue-600 ring-blue-400' },
-            { f: 'accepted', label: 'ACCEPTED (WAITING DEPOSIT)', color: 'bg-orange-500 ring-orange-400' },
-            { f: 'ordered', label: 'ORDERED (WITH SUPPLIER)', color: 'bg-purple-600 ring-purple-400' },
-            { f: 'collection', label: 'READY FOR COLLECTION', color: 'bg-green-600 ring-green-400' },
-            { f: 'completed', label: 'COMPLETED', color: 'bg-gray-700 ring-gray-400' },
+            { f: 'requests', label: 'PRICE REQUESTS', count: requestsCount, color: 'bg-blue-600 ring-blue-400' },
+            { f: 'accepted', label: 'ACCEPTED (WAITING DEPOSIT)', count: acceptedCount, color: 'bg-orange-500 ring-orange-400' },
+            { f: 'ordered', label: 'ORDERED (WITH SUPPLIER)', count: orderedCount, color: 'bg-purple-600 ring-purple-400' },
+            { f: 'collection', label: 'READY FOR COLLECTION', count: collectionCount, color: 'bg-green-600 ring-green-400' },
+            { f: 'completed', label: 'COMPLETED', count: completedCount, color: 'bg-gray-700 ring-gray-400' },
           ].map(b => (
             <button key={b.f} onClick={() => { setCurrentScreen('list'); setViewFilter(b.f as ViewFilter); }}
               className={`flex-1 py-4 md:py-5 text-xs md:text-sm lg:text-base font-black uppercase tracking-wider rounded-xl transition-all text-white ${b.color.split(' ')[0]} ${currentScreen === 'list' && viewFilter === b.f ? `opacity-100 shadow-md ring-2 ring-offset-2 ${b.color.split(' ')[1]}` : 'opacity-80 hover:opacity-100'}`}>
-              {b.label}
+              <span className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2">
+                <span className="text-center leading-tight">{b.label}</span>
+                {b.count > 0 && (
+                  <span className="shrink-0 inline-flex items-center justify-center min-w-[1.35rem] h-6 px-2 rounded-full bg-white text-gray-900 text-xs font-black shadow-sm">
+                    {b.count}
+                  </span>
+                )}
+              </span>
             </button>
           ))}
         </div>
@@ -469,6 +512,54 @@ export default function OwnerView() {
                   )}
                   {selectedOrder.status === OrderStatus.ORDERED && (
                     <button onClick={() => handleStatusChange(selectedOrder, OrderStatus.READY_FOR_COLLECTION)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-md text-sm uppercase tracking-wide">MARK AS ARRIVED</button>
+                  )}
+                  {selectedOrder.status === OrderStatus.READY_FOR_COLLECTION && (
+                    <div className="flex flex-col gap-3">
+                      <div className="text-center text-sm font-bold text-gray-700 uppercase tracking-wide">
+                        Balance due: <span className="font-mono text-orange-600">R {ownerReadyCollectionBalance.toFixed(2)}</span>
+                      </div>
+                      {ownerReadyCollectionBalance === 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => handleStatusChange(selectedOrder, OrderStatus.COMPLETED)}
+                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-md text-sm uppercase tracking-wide"
+                        >
+                          MARK AS COMPLETED
+                        </button>
+                      ) : (
+                        <div className="flex flex-col gap-3">
+                          <div className="text-center text-xs font-semibold text-gray-600">Capture final payment</div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Amount (R)</label>
+                            <input
+                              type="number"
+                              value={finalPayAmount}
+                              onChange={e => setFinalPayAmount(e.target.value)}
+                              className="w-full p-3 border border-gray-300 rounded-md text-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase">Payment method</label>
+                            <select
+                              value={finalPayMethod}
+                              onChange={e => setFinalPayMethod(e.target.value)}
+                              className="w-full p-3 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                            >
+                              <option>Cash</option>
+                              <option>Card</option>
+                              <option>EFT</option>
+                            </select>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleCaptureFinalPaymentOwner(selectedOrder)}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-md text-sm uppercase tracking-wide"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                   {selectedOrder.status === OrderStatus.COMPLETED && (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex flex-col gap-3">
