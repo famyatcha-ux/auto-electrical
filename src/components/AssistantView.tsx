@@ -52,6 +52,12 @@ export default function AssistantView() {
   const [paymentRequirement, setPaymentRequirement] = useState('Deposit Required');
   const [screenshotPath, setScreenshotPath] = useState<string | undefined>(undefined);
 
+  const BANK_NAME = 'FNB';
+  const ACCOUNT_NAME = 'Auto Electrical Parts Centre';
+  const ACCOUNT_NUMBER = '';
+  const ACCOUNT_TYPE = 'Cheque';
+  const BRANCH_CODE = '';
+
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3000);
@@ -369,6 +375,7 @@ export default function AssistantView() {
           <h2 className="text-xl font-black text-orange-600 uppercase tracking-widest border-b-4 border-orange-600 pb-3 mb-6">3. Waiting For Payment</h2>
           {s3.length > 0 ? s3.map(order => {
             const total = (order.price ?? 0) + (order.delivery_fee ?? 0);
+            const depositReq = order.payment_requirement === 'Full Payment Required' ? total : Math.round(total * 0.5);
             const isCapturing = capturingDepositFor === order.id;
             return (
               <div key={order.id} className="bg-white rounded-2xl shadow-md border-l-8 border-orange-500 p-6 flex flex-col md:flex-row gap-6 mb-4">
@@ -378,7 +385,24 @@ export default function AssistantView() {
                   <div className="text-orange-600 font-bold uppercase text-sm">{order.status === OrderStatus.WAITING_FOR_FULL_PAYMENT ? 'Waiting for Full Payment' : 'Waiting for Deposit'}</div>
                   {editBtn(order)}
                   <button onClick={() => {
-                    const msg = `Hi ${order.customer_name},\n\nRef: ${order.ref}\nTotal: R ${total}\n\nPlease make payment and send proof.\n\nThank you`;
+                    const amountLines =
+                      order.status === OrderStatus.WAITING_FOR_DEPOSIT
+                        ? `Deposit Required: R ${depositReq.toFixed(2)}
+Full Order Total: R ${total.toFixed(2)}`
+                        : `Amount Due: R ${total.toFixed(2)}`;
+                    const msg = `Hi ${order.customer_name},
+Please make payment for your order:
+Ref: ${order.ref}
+${amountLines}
+Banking Details:
+Bank: ${BANK_NAME}
+Account Name: ${ACCOUNT_NAME}
+Account Number: ${ACCOUNT_NUMBER}
+Account Type: ${ACCOUNT_TYPE}
+Branch Code: ${BRANCH_CODE}
+Please use your name and ref number as reference.
+Send proof of payment to this WhatsApp once paid.
+Thank you`;
                     sendWhatsApp(order, 'PAYMENT_DETAILS', msg);
                   }} disabled={!!order.message_timestamps?.['PAYMENT_DETAILS']} className={waBtnClass(!!order.message_timestamps?.['PAYMENT_DETAILS'])}>
                     {order.message_timestamps?.['PAYMENT_DETAILS'] ? 'Sent ✔' : 'Send Payment Details (WhatsApp)'}
